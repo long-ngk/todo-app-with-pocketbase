@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Todo App</title>
+		<!-- Include PocketBase JS SDK -->
+		<script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.4/dist/pocketbase.umd.min.js"></script>
+		<script>
+			const pb = new PocketBase("http://127.0.0.1:8090");
+		</script>
+		<script>
+			async function loadTodos() {
+				try {
+					const records = await pb
+						.collection("todos")
+						.getFullList(/* batch size, etc can be specified */);
+					console.log(records);
+					// Clear current list UI
+					todoListElem.innerHTML = "";
+					// Render each todo item
+					records.forEach((record) => {
+						addTodoToUI(record);
+					});
+				} catch (err) {
+					console.error("Failed to load todos:", err);
+				}
+			}
+			loadTodos();
+
+			function addTodoToUI(record) {
+				const li = document.createElement("li");
+				li.dataset.id = record.id;
+				li.textContent = record.text + (record.done ? " ✔️" : "");
+				// You can make this more elaborate: e.g., add a checkbox to toggle done, a delete [x] button, etc.
+				// For brevity, we'll just indicate done with a checkmark.
+				li.style.textDecoration = record.done ? "line-through" : "none";
+
+				// Toggle done on click
+				li.addEventListener("click", async () => {
+					const newStatus = !record.done;
+					try {
+						// Update on server:
+						const updated = await pb
+							.collection("todos")
+							.update(record.id, { done: newStatus });
+						record.done = updated.done; // update local copy
+						li.textContent =
+							record.text + (record.done ? " ✔️" : "");
+						li.style.textDecoration = record.done
+							? "line-through"
+							: "none";
+					} catch (err) {
+						console.error("Failed to toggle todo:", err);
+					}
+				});
+
+				// Delete on right-click (for example)
+				li.addEventListener("contextmenu", async (e) => {
+					e.preventDefault();
+					try {
+						await pb.collection("todos").delete(record.id);
+						li.remove(); // remove from UI
+					} catch (err) {
+						console.error("Failed to delete todo:", err);
+					}
+				});
+
+				todoListElem.appendChild(li);
+			}
+		</script>
+	</head>
+
+	<body>
+		<h1>My Todo List</h1>
+		<input id="newTodoText" type="text" placeholder="Enter a new task..." />
+		<button id="addBtn">Add Todo</button>
+
+		<ul id="todoList"></ul>
+	</body>
+
+	<script>
+		const newTodoInput = document.getElementById("newTodoText");
+		const addBtn = document.getElementById("addBtn");
+		const todoListElem = document.getElementById("todoList");
+
+		addBtn.addEventListener("click", async () => {
+			const text = newTodoInput.value.trim();
+			if (!text) return;
+			try {
+				const newRecord = await pb
+					.collection("todos")
+					.create({ text: text, done: false });
+				newTodoInput.value = ""; // clear input
+				addTodoToUI(newRecord); // add the new task to the list UI
+			} catch (err) {
+				console.error("Failed to create todo:", err);
+			}
+		});
+
+		pb.collection("todos").subscribe("*", function (e) {
+			console.log("Realtime event:", e.action, e.record);
+			const record = e.record;
+			if (e.action === "update") {
+				// A todo was modified (e.g., marked done)
+				// Find it in the UI and update its display
+				const li = document.querySelector(`li[data-id="${record.id}"]`);
+				if (li) {
+					li.textContent = record.text + (record.done ? " ✔️" : "");
+					li.style.textDecoration = record.done
+						? "line-through"
+						: "none";
+				}
+			} else if (e.action === "delete") {
+				// A todo was deleted
+				const li = document.querySelector(`li[data-id="${record.id}"]`);
+				if (li) li.remove();
+			}
+		});
+	</script>
+</html>
